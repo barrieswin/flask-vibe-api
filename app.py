@@ -1,116 +1,87 @@
-"""任務管理系統的最小可行 RESTful API。
+"""個人記帳本後端 RESTful API。
 
-使用記憶體清單保存任務，端點本身不依賴 session，符合無狀態原則。
+採用 Application Factory 模式，並透過 Flask-SQLAlchemy 連接 PostgreSQL。
 """
 
-from datetime import datetime
+import os
+from datetime import datetime, timezone
+from pathlib import Path
 
-from flask import Flask, jsonify, request
+from dotenv import load_dotenv
+from flask import Flask, jsonify
+from sqlalchemy import text
 
-app = Flask(__name__)
-app.json.ensure_ascii = False
-app.json.sort_keys = False
-
-tasks = [
-    {
-        "id": 1,
-        "title": "熟悉 Flask 路由",
-        "description": "建立健康檢查與任務查詢端點",
-    },
-    {
-        "id": 2,
-        "title": "整理 API 回應格式",
-        "description": "統一封裝 status、message 與 data",
-    },
-]
-_next_id = 3
+from extensions import db
 
 
-def api_response(status, message, data, http_status):
-    """回傳統一封裝的 JSON 回應。"""
-    body = {"status": status, "message": message, "data": data}
-    return jsonify(body), http_status
+def create_app() -> Flask:
+    """建立並設定 Flask 應用程式實例。"""
+    # 優先嘗試從專案根目錄的 .env 載入環境變數（若本機存在）
+    env_path = Path(__file__).resolve().parent / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url or not database_url.strip():
+        raise RuntimeError(
+            "未設定環境變數 DATABASE_URL，無法啟動伺服器。請在環境變數或專案根目錄的 .env 中指定 PostgreSQL 連線字串。"
+        )
+
+    # 若連線字串以 postgres:// 開頭，轉換為 SQLAlchemy 支援的 postgresql://
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+    app = Flask(__name__)
+    app.json.ensure_ascii = False
+    app.json.sort_keys = False
+
+    app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+    db.init_app(app)
+
+    def api_response(code: int, message: str, data=None):
+        """回傳統一封裝的 JSON 回應。"""
+        body = {
+            "code": code,
+            "message": message,
+            "data": data,
+        }
+        return jsonify(body), code
+
+    @app.get("/api/health")
+    def health_check():
+        """回傳伺服器運行狀態與當前 UTC 時間（不查詢資料庫）。"""
+        payload = {
+            "status": "ok",
+            "time": datetime.now(timezone.utc).isoformat(),
+        }
+        return api_response(200, "伺服器運作正常，測試正常可以進行其他任務。", payload)
+
+    @app.get("/api/health/db")
+    def db_health_check():
+        """向 PostgreSQL 執行一次 SELECT 1 以檢查資料庫連線狀況。"""
+        try:
+            db.session.execute(text("SELECT 1"))
+            return api_response(200, "資料庫連線正常", {"status": "ok"})
+        except Exception as exc:
+            app.logger.exception("資料庫連線檢查失敗: %s", exc)
+            return api_response(500, "資料庫暫時連不上", None)
+
+    @app.errorhandler(404)
+    def handle_not_found(_error):
+        """找不到路徑時回傳 JSON 404。"""
+        return api_response(404, "找不到這一筆", None)
+
+    @app.errorhandler(405)
+    def handle_method_not_allowed(_error):
+        return api_response(405, "不支援的請求方法", None)
+
+    return app
 
 
-def api_success(message, data, http_status=200):
-    return api_response("success", message, data, http_status)
-
-
-def api_error(message, http_status, data=None):
-    return api_response("error", message, data, http_status)
-
-
-def find_task(task_id):
-    for task in tasks:
-        if task["id"] == task_id:
-            return task
-    return None
-
-
-@app.get("/api/health")
-def health_check():
-    """回傳伺服器運行狀態與當前時間。"""
-    payload = {
-        "server": "running",
-        "time": datetime.now().astimezone().isoformat(timespec="seconds"),
-    }
-    return api_success("伺服器運行正常", payload)
-
-
-@app.get("/api/tasks")
-def list_tasks():
-    """取得所有任務。"""
-    return api_success("取得任務清單成功", tasks)
-
-
-@app.post("/api/tasks")
-def create_task():
-    """新增一筆任務。title 為必填，description 為選填。"""
-    global _next_id
-
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return api_error("未傳送合法 JSON", 400)
-
-    title = payload.get("title")
-    if not isinstance(title, str) or not title.strip():
-        return api_error("缺少必填欄位 title", 400)
-
-    description = payload.get("description", "")
-    if description is None:
-        description = ""
-    if not isinstance(description, str):
-        return api_error("description 必須為字串", 400)
-
-    task = {
-        "id": _next_id,
-        "title": title.strip(),
-        "description": description,
-    }
-    _next_id += 1
-    tasks.append(task)
-    return api_success("新增任務成功", task, 201)
-
-
-@app.get("/api/tasks/<int:task_id>")
-def get_task(task_id):
-    """依 ID 查詢單一任務。"""
-    task = find_task(task_id)
-    if task is None:
-        return api_error("找不到指定任務", 404)
-    return api_success("取得任務成功", task)
-
-
-@app.errorhandler(404)
-def handle_not_found(_error):
-    """不存在的路徑一律回傳 JSON 404。"""
-    return api_error("找不到指定的路徑", 404)
-
-
-@app.errorhandler(405)
-def handle_method_not_allowed(_error):
-    return api_error("不支援的請求方法", 405)
-
+app = create_app()
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True)
+
