@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>個人記帳本</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- 連線設定頁面 -->
+    <div id="view-connect" class="connect-view">
+      <div class="connect-header">
+        <h1>個人記帳本</h1>
+        <p>請設定後端 API 伺服器網址開始記帳</p>
+      </div>
+
+      <div class="card">
+        <form id="form-connect" onsubmit="event.preventDefault(); window.app.handleConnect();">
+          <div class="form-group">
+            <label class="form-label" for="input-api-url">後端 API 網址</label>
+            <input
+              type="url"
+              id="input-api-url"
+              class="form-input"
+              placeholder="http://127.0.0.1:5000"
+              required
+              autocomplete="off"
+            >
+          </div>
+          <button type="submit" id="btn-connect" class="btn btn-primary">連線並測試</button>
+        </form>
+        <div id="connect-msg" class="message-banner"></div>
+      </div>
+
+      <div class="note-box">
+        <strong>驗收提示：</strong>在 <code>ledger-api/ledger-web</code> 用本機靜態伺服器開啟。
+      </div>
+    </div>
+
+    <!-- 主應用程式頁面（通過健康檢查後顯示） -->
+    <div id="view-main" class="hidden">
+      <!-- 頂部列 -->
+      <header class="app-header">
+        <div class="app-title">
+          <span>📒</span>
+          <span>個人記帳本</span>
+        </div>
+        <button id="btn-clear-conn" class="app-header-btn" title="清除連線並返回設定頁">
+          清除連線
+        </button>
+      </header>
+
+      <!-- 全域提示訊息橫幅 -->
+      <div id="global-msg" class="message-banner"></div>
+
+      <!-- 分頁內容區 -->
+      <main class="main-content">
+        <!-- 分頁 1：首頁 -->
+        <section id="tab-home" class="tab-pane">
+          <!-- 本月收支摘要卡片 -->
+          <div class="card">
+            <div class="card-title">
+              <span>本月收支彙整</span>
+              <span id="home-month-label" style="font-size: 0.85rem; color: var(--text-muted);"></span>
+            </div>
+            <div class="summary-grid">
+              <div class="summary-item income-box">
+                <div class="summary-label">本月入帳</div>
+                <div id="home-income-val" class="summary-val amount income">$ 0</div>
+              </div>
+              <div class="summary-item expense-box">
+                <div class="summary-label">本月花費</div>
+                <div id="home-expense-val" class="summary-val amount expense">$ 0</div>
+              </div>
+            </div>
+            <div class="net-summary">
+              <span style="color: var(--text-muted); font-weight: 500;">本月結餘</span>
+              <span id="home-net-val" class="amount neutral">$ 0</span>
+            </div>
+          </div>
+
+          <!-- 帳戶與即時餘額卡片 -->
+          <div class="card">
+            <div class="card-title">
+              <span>帳戶與即時餘額</span>
+            </div>
+            <div id="home-accounts-container">
+              <div class="empty-state">載入帳戶中...</div>
+            </div>
+            <!-- 無帳戶時之快速建立表單 -->
+            <div id="home-create-account-box" class="hidden" style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
+              <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">目前尚無帳戶，請先建立現金帳戶以開始記帳：</p>
+              <button id="btn-create-default-account" class="btn btn-outline btn-sm">建立現金錢包</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 分頁 2：記帳 -->
+        <section id="tab-records" class="tab-pane hidden">
+          <!-- 花費 / 入帳 切換鍵 -->
+          <div class="segmented-control">
+            <button id="btn-mode-expense" class="segmented-btn active" onclick="window.app.switchRecordMode('expense')">記錄花費</button>
+            <button id="btn-mode-income" class="segmented-btn" onclick="window.app.switchRecordMode('income')">記錄入帳</button>
+          </div>
+
+          <!-- 快速建立分類卡片（當無分類時或需要快速新增時） -->
+          <div id="quick-category-box" class="card hidden" style="border-left: 4px solid var(--primary-color);">
+            <div class="card-title" id="quick-category-title">新增分類</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="input-quick-category-name" class="form-input" placeholder="請輸入分類名稱" style="flex: 1;">
+              <button id="btn-submit-quick-category" class="btn btn-primary btn-sm" style="width: auto; padding: 0 16px;">新增</button>
+            </div>
+          </div>
+
+          <!-- 記帳表單卡片 -->
+          <div class="card">
+            <!-- 花費表單 -->
+            <form id="form-expense" onsubmit="event.preventDefault(); window.app.submitExpense();">
+              <div class="form-group">
+                <label class="form-label" for="expense-spent-on">消費日期 *</label>
+                <input type="date" id="expense-spent-on" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="expense-amount">花費金額 *</label>
+                <input type="number" id="expense-amount" class="form-input" placeholder="0.00" step="any" min="0.01" required>
+              </div>
+              <div class="form-group">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <label class="form-label" for="expense-category-id" style="margin-bottom: 0;">花費分類 *</label>
+                  <button type="button" class="btn btn-outline btn-sm" style="width: auto; height: 28px; min-height: 28px; padding: 2px 8px; font-size: 0.75rem;" onclick="window.app.toggleQuickCategory('expense')">+ 新增分類</button>
+                </div>
+                <select id="expense-category-id" class="form-select" required></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="expense-account-id">扣款帳戶 *</label>
+                <select id="expense-account-id" class="form-select" required></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="expense-merchant">商戶名稱</label>
+                <input type="text" id="expense-merchant" class="form-input" placeholder="例如：便當店、超市">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="expense-note">備註說明</label>
+                <input type="text" id="expense-note" class="form-input" placeholder="例如：午餐、日常用品">
+              </div>
+              <button type="submit" class="btn btn-primary">記錄這筆花費</button>
+            </form>
+
+            <!-- 入帳表單 -->
+            <form id="form-income" class="hidden" onsubmit="event.preventDefault(); window.app.submitIncome();">
+              <div class="form-group">
+                <label class="form-label" for="income-received-on">入帳日期 *</label>
+                <input type="date" id="income-received-on" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="income-amount">入帳金額 *</label>
+                <input type="number" id="income-amount" class="form-input" placeholder="0.00" step="any" min="0.01" required>
+              </div>
+              <div class="form-group">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <label class="form-label" for="income-category-id" style="margin-bottom: 0;">入帳分類 *</label>
+                  <button type="button" class="btn btn-outline btn-sm" style="width: auto; height: 28px; min-height: 28px; padding: 2px 8px; font-size: 0.75rem;" onclick="window.app.toggleQuickCategory('income')">+ 新增分類</button>
+                </div>
+                <select id="income-category-id" class="form-select" required></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="income-account-id">收款帳戶 *</label>
+                <select id="income-account-id" class="form-select" required></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="income-source">入帳來源</label>
+                <input type="text" id="income-source" class="form-input" placeholder="例如：公司、雇主">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="income-note">備註說明</label>
+                <input type="text" id="income-note" class="form-input" placeholder="例如：十一月薪水">
+              </div>
+              <button type="submit" class="btn btn-primary">記錄這筆入帳</button>
+            </form>
+          </div>
+
+          <!-- 本月流水清單 -->
+          <div class="card">
+            <div class="card-title">
+              <span>本月流水明細</span>
+            </div>
+            <div id="monthly-records-container" class="record-list">
+              <div class="empty-state">尚無明細記錄</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 分頁 3：投資 -->
+        <section id="tab-investment" class="tab-pane hidden">
+          <div class="card">
+            <div class="card-title">
+              <span>台股持有狀況</span>
+              <button id="btn-fetch-quotes" class="btn btn-outline btn-sm" style="width: auto;" onclick="window.app.fetchStockQuotes()">
+                🔄 抓取最新報價
+              </button>
+            </div>
+            <div id="investment-quote-status" class="message-banner" style="margin: 0 0 12px 0;"></div>
+            <div id="investment-list-container" class="stock-list">
+              <div class="empty-state">載入標的中...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 分頁 4：發票（唯讀） -->
+        <section id="tab-invoices" class="tab-pane hidden">
+          <div class="card">
+            <div class="card-title">
+              <span>發票清單（唯讀）</span>
+            </div>
+            <div id="invoices-list-container" class="invoice-list">
+              <div class="empty-state">載入發票中...</div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- 底部導覽列 -->
+      <nav class="bottom-nav">
+        <button id="nav-btn-home" class="nav-item active" onclick="window.app.switchTab('home')">
+          <span class="nav-icon">🏠</span>
+          <span>首頁</span>
+        </button>
+        <button id="nav-btn-records" class="nav-item" onclick="window.app.switchTab('records')">
+          <span class="nav-icon">✍️</span>
+          <span>記帳</span>
+        </button>
+        <button id="nav-btn-investment" class="nav-item" onclick="window.app.switchTab('investment')">
+          <span class="nav-icon">📈</span>
+          <span>投資</span>
+        </button>
+        <button id="nav-btn-invoices" class="nav-item" onclick="window.app.switchTab('invoices')">
+          <span class="nav-icon">🧾</span>
+          <span>發票</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

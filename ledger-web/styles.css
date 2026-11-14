@@ -1,0 +1,557 @@
+/* 個人記帳本手機版 RWD 樣式表 */
+
+:root {
+  --bg-color: #f6f4f0;
+  --card-bg: #ffffff;
+  --primary-color: #134e4a;
+  --primary-hover: #0f3f3c;
+  --primary-light: #e6f4f2;
+  --primary-border: #99f6e4;
+  --text-main: #1c2423;
+  --text-muted: #5e6d6b;
+  --border-color: #e2ddd5;
+  --border-light: #ece8e1;
+  --income-color: #15803d;
+  --income-bg: #f0fdf4;
+  --expense-color: #b91c1c;
+  --expense-bg: #fef2f2;
+  --warning-color: #b45309;
+  --card-radius: 16px;
+  --input-radius: 10px;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  line-height: 1.5;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+/* 主容器：手機寬度為預設，768px 以上縮至 430px 水平置中 */
+.app-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-color);
+  position: relative;
+  overflow-x: hidden;
+}
+
+@media (min-width: 768px) {
+  .app-container {
+    max-width: 430px;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.08);
+    border-left: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+  }
+}
+
+/* 頂部標頭 */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--primary-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-header-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--input-radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.app-header-btn:hover,
+.app-header-btn:active {
+  background-color: var(--primary-light);
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+/* 訊息提示橫幅（只顯示人話 message） */
+.message-banner {
+  margin: 12px 16px 0;
+  padding: 12px 14px;
+  border-radius: var(--input-radius);
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: none;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.message-banner.error {
+  display: block;
+  background-color: var(--expense-bg);
+  color: var(--expense-color);
+  border: 1px solid #fecaca;
+}
+
+.message-banner.success {
+  display: block;
+  background-color: var(--income-bg);
+  color: var(--income-color);
+  border: 1px solid #bbf7d0;
+}
+
+.message-banner.info {
+  display: block;
+  background-color: var(--primary-light);
+  color: var(--primary-color);
+  border: 1px solid var(--primary-border);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 主畫面區域，底部留白以避開導覽列與安全區域 */
+.main-content {
+  flex: 1;
+  padding: 16px;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 卡片設計 */
+.card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 金額樣式：靠右且數字等寬 */
+.amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight: 600;
+}
+
+.amount.income {
+  color: var(--income-color);
+}
+
+.amount.expense {
+  color: var(--expense-color);
+}
+
+.amount.neutral {
+  color: var(--text-main);
+}
+
+/* 表單與按鈕 */
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.form-input,
+.form-select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  color: var(--text-main);
+  background-color: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: var(--input-radius);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.form-input:focus,
+.form-select:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.btn {
+  min-height: 44px;
+  min-width: 44px;
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: var(--input-radius);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  color: #ffffff;
+}
+
+.btn-primary:hover,
+.btn-primary:active {
+  background-color: var(--primary-hover);
+}
+
+.btn-outline {
+  background-color: transparent;
+  color: var(--primary-color);
+  border: 1px solid var(--primary-color);
+}
+
+.btn-outline:hover,
+.btn-outline:active {
+  background-color: var(--primary-light);
+}
+
+.btn-sm {
+  min-height: 36px;
+  min-width: 36px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+/* 分段切換按鈕（如入帳/花費） */
+.segmented-control {
+  display: flex;
+  background-color: var(--border-light);
+  border-radius: var(--input-radius);
+  padding: 3px;
+  margin-bottom: 16px;
+}
+
+.segmented-btn {
+  flex: 1;
+  min-height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.segmented-btn.active {
+  background-color: var(--card-bg);
+  color: var(--primary-color);
+  box-shadow: var(--shadow-sm);
+}
+
+/* 首頁：月度摘要網格 */
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.summary-item {
+  background-color: var(--bg-color);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.summary-item.income-box {
+  background-color: var(--income-bg);
+  border: 1px solid #dcfce7;
+}
+
+.summary-item.expense-box {
+  background-color: var(--expense-bg);
+  border: 1px solid #fee2e2;
+}
+
+.summary-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.summary-val {
+  font-size: 1.15rem;
+}
+
+.net-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-color);
+  font-size: 0.9rem;
+}
+
+/* 帳戶清單項目 */
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.account-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background-color: var(--bg-color);
+  border-radius: var(--input-radius);
+}
+
+.account-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.account-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.account-kind {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* 流水清單項目 */
+.record-list,
+.invoice-list,
+.stock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.record-item,
+.invoice-item,
+.stock-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--input-radius);
+  transition: transform 0.15s ease;
+}
+
+.record-meta,
+.invoice-meta,
+.stock-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.record-title,
+.invoice-number,
+.stock-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.record-sub,
+.invoice-sub,
+.stock-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* 狀態徽章 */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+
+.badge-pending {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.badge-won {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.badge-claimed {
+  background-color: #e0e7ff;
+  color: #3730a3;
+}
+
+.badge-lost {
+  background-color: #f3f4f6;
+  color: #4b5563;
+}
+
+.badge-void {
+  background-color: #f1f5f9;
+  color: #64748b;
+  text-decoration: line-through;
+}
+
+/* 底部導覽列（吸附於 430px 主欄底部） */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 100%;
+  height: calc(60px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background-color: var(--card-bg);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 30;
+}
+
+@media (min-width: 768px) {
+  .bottom-nav {
+    max-width: 430px;
+  }
+}
+
+.nav-item {
+  flex: 1;
+  height: 100%;
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.nav-item.active {
+  color: var(--primary-color);
+}
+
+.nav-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* 連線設定頁面特化樣式 */
+.connect-view {
+  padding: 32px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 80vh;
+}
+
+.connect-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.connect-header h1 {
+  font-size: 1.4rem;
+  color: var(--primary-color);
+  margin-bottom: 8px;
+}
+
+.connect-header p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.note-box {
+  margin-top: 24px;
+  padding: 12px 14px;
+  background-color: var(--primary-light);
+  border: 1px solid var(--primary-border);
+  border-radius: var(--input-radius);
+  font-size: 0.85rem;
+  color: var(--primary-color);
+  line-height: 1.5;
+}
+
+/* 空狀態提示 */
+.empty-state {
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.empty-state p {
+  margin-bottom: 12px;
+}
+
+/* 隱藏元素工具類別 */
+.hidden {
+  display: none !important;
+}

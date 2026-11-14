@@ -4,11 +4,12 @@
 """
 
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, Response, request
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
@@ -54,6 +55,56 @@ def create_app() -> Flask:
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     db.init_app(app)
+
+    allowed_origin_pattern = re.compile(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$")
+    web_origin = os.getenv("WEB_ORIGIN", "").strip()
+
+    def is_origin_allowed(origin: str | None) -> bool:
+        if not origin:
+            return False
+        if allowed_origin_pattern.match(origin):
+            return True
+        if web_origin and origin == web_origin:
+            return True
+        return False
+
+    @app.before_request
+    def handle_cors_preflight():
+        if request.method == "OPTIONS":
+            origin = request.headers.get("Origin")
+            res = Response(status=204)
+            if is_origin_allowed(origin):
+                res.headers["Access-Control-Allow-Origin"] = origin
+                res.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, PUT, DELETE, OPTIONS"
+                req_headers = request.headers.get("Access-Control-Request-Headers")
+                if req_headers:
+                    res.headers["Access-Control-Allow-Headers"] = req_headers
+                else:
+                    res.headers["Access-Control-Allow-Headers"] = "Content-Type"
+                res.headers["Access-Control-Max-Age"] = "86400"
+            res.headers["Access-Control-Allow-Private-Network"] = "true"
+            res.headers["Vary"] = "Origin"
+            res.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            return res
+
+    @app.after_request
+    def apply_cors_headers(response):
+        origin = request.headers.get("Origin")
+        if is_origin_allowed(origin):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, PUT, DELETE, OPTIONS"
+            req_headers = request.headers.get("Access-Control-Request-Headers")
+            if req_headers:
+                response.headers["Access-Control-Allow-Headers"] = req_headers
+            else:
+                response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+
+        # 一般回應與 preflight 都加上 Access-Control-Allow-Private-Network: true
+        # 回應帶 Vary: Origin 與 Cache-Control: no-store, no-cache, must-revalidate
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+        response.headers["Vary"] = "Origin"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return response
 
     # 註冊 API 路由藍圖
     app.register_blueprint(accounts_bp)
