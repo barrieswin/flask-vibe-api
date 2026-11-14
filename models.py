@@ -1,6 +1,6 @@
 """資料庫模型定義。
 
-包含帳戶（Account）與帳戶移轉（Transfer）模型。
+包含帳戶（Account）、帳戶移轉（Transfer）、統一發票（Invoice）、發票品項（InvoiceItem）、開獎期別（DrawPeriod）與開獎獎項（DrawPrize）模型。
 """
 
 from datetime import datetime, timezone
@@ -8,7 +8,14 @@ from decimal import Decimal
 
 from extensions import db
 
-__all__ = ["Account", "Transfer"]
+__all__ = [
+    "Account",
+    "Transfer",
+    "Invoice",
+    "InvoiceItem",
+    "DrawPeriod",
+    "DrawPrize",
+]
 
 
 class Account(db.Model):
@@ -189,3 +196,288 @@ class Transfer(db.Model):
             f"amount={self.amount} {self.currency} "
             f"from={self.from_account_id} to={self.to_account_id}>"
         )
+
+
+class Invoice(db.Model):
+    """統一發票模型（invoices 表）。
+
+    記錄發票號碼、開立日期、金額、種類、幣別、匯率、隨機碼、賣方資訊與對獎狀態。
+    """
+
+    __tablename__ = "invoices"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    number = db.Column(db.String(10), nullable=False)
+    issued_on = db.Column(db.Date, nullable=False)
+    amount = db.Column(db.Numeric(16, 4), nullable=False)
+    kind = db.Column(db.String(20), nullable=False)
+    currency = db.Column(
+        db.String(3),
+        nullable=False,
+        default="TWD",
+        server_default="TWD",
+    )
+    fx_rate_to_twd = db.Column(
+        db.Numeric(12, 6),
+        nullable=False,
+        default=Decimal("1.000000"),
+        server_default=db.text("1.000000"),
+    )
+    random_code = db.Column(db.String(4), nullable=True)
+    seller_name = db.Column(db.String(100), nullable=True)
+    seller_ban = db.Column(db.String(8), nullable=True)
+    prize_status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="unchecked",
+        server_default="unchecked",
+    )
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("number", name="uq_invoices_number"),
+        db.CheckConstraint(
+            "number ~ '^[A-Z]{2}[0-9]{8}$'",
+            name="ck_invoices_number",
+        ),
+        db.CheckConstraint("amount > 0", name="ck_invoices_amount"),
+        db.CheckConstraint(
+            "kind IN ('paper', 'electronic')",
+            name="ck_invoices_kind",
+        ),
+        db.CheckConstraint("fx_rate_to_twd > 0", name="ck_invoices_fx_rate_to_twd"),
+        db.CheckConstraint(
+            "random_code IS NULL OR random_code ~ '^[0-9]{4}$'",
+            name="ck_invoices_random_code",
+        ),
+        db.CheckConstraint(
+            "prize_status IN ('unchecked', 'lost', 'won', 'claimed', 'void')",
+            name="ck_invoices_prize_status",
+        ),
+    )
+
+    items = db.relationship(
+        "InvoiceItem",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    def to_dict(self) -> dict:
+        """轉換為字典供 API 回傳。"""
+        return {
+            "id": self.id,
+            "number": self.number,
+            "issued_on": self.issued_on.isoformat() if self.issued_on else None,
+            "amount": float(self.amount) if self.amount is not None else 0.0,
+            "kind": self.kind,
+            "currency": self.currency,
+            "fx_rate_to_twd": float(self.fx_rate_to_twd) if self.fx_rate_to_twd is not None else 1.0,
+            "random_code": self.random_code,
+            "seller_name": self.seller_name,
+            "seller_ban": self.seller_ban,
+            "prize_status": self.prize_status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<Invoice id={self.id} number={self.number!r} amount={self.amount} status={self.prize_status!r}>"
+
+
+class InvoiceItem(db.Model):
+    """發票品項明細模型（invoice_items 表）。
+
+    記錄發票所屬品項名稱、數量、單價與金額小計。
+    """
+
+    __tablename__ = "invoice_items"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    invoice_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "invoices.id",
+            name="fk_invoice_items_invoice_id_invoices",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    name = db.Column(db.String(150), nullable=False)
+    quantity = db.Column(db.Numeric(16, 4), nullable=False)
+    unit_price = db.Column(db.Numeric(16, 4), nullable=False)
+    line_amount = db.Column(db.Numeric(16, 4), nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.CheckConstraint("quantity > 0", name="ck_invoice_items_quantity"),
+        db.CheckConstraint("unit_price > 0", name="ck_invoice_items_unit_price"),
+        db.CheckConstraint("line_amount > 0", name="ck_invoice_items_line_amount"),
+    )
+
+    invoice = db.relationship(
+        "Invoice",
+        back_populates="items",
+    )
+
+    def to_dict(self) -> dict:
+        """轉換為字典供 API 回傳。"""
+        return {
+            "id": self.id,
+            "invoice_id": self.invoice_id,
+            "name": self.name,
+            "quantity": float(self.quantity) if self.quantity is not None else 0.0,
+            "unit_price": float(self.unit_price) if self.unit_price is not None else 0.0,
+            "line_amount": float(self.line_amount) if self.line_amount is not None else 0.0,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<InvoiceItem id={self.id} invoice_id={self.invoice_id} name={self.name!r} line_amount={self.line_amount}>"
+
+
+class DrawPeriod(db.Model):
+    """統一發票開獎期別模型（draw_periods 表）。
+
+    記錄發票開獎期別標識（如 2024-02 等）。
+    """
+
+    __tablename__ = "draw_periods"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    period_key = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("period_key", name="uq_draw_periods_period_key"),
+    )
+
+    prizes = db.relationship(
+        "DrawPrize",
+        back_populates="draw_period",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    def to_dict(self) -> dict:
+        """轉換為字典供 API 回傳。"""
+        return {
+            "id": self.id,
+            "period_key": self.period_key,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<DrawPeriod id={self.id} period_key={self.period_key!r}>"
+
+
+class DrawPrize(db.Model):
+    """統一發票開獎獎項模型（draw_prizes 表）。
+
+    記錄各期別的開獎獎項、中獎號碼與獎金金額。
+    """
+
+    __tablename__ = "draw_prizes"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    draw_period_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "draw_periods.id",
+            name="fk_draw_prizes_draw_period_id_draw_periods",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    tier = db.Column(db.String(20), nullable=False)
+    matching_number = db.Column(db.String(10), nullable=False)
+    amount = db.Column(db.Numeric(16, 4), nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "draw_period_id",
+            "tier",
+            "matching_number",
+            name="uq_draw_prizes_draw_period_id_tier_matching_number",
+        ),
+        db.CheckConstraint(
+            "tier IN ('special', 'grand', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'extra_sixth')",
+            name="ck_draw_prizes_tier",
+        ),
+        db.CheckConstraint("amount >= 0", name="ck_draw_prizes_amount"),
+    )
+
+    draw_period = db.relationship(
+        "DrawPeriod",
+        back_populates="prizes",
+    )
+
+    def to_dict(self) -> dict:
+        """轉換為字典供 API 回傳。"""
+        return {
+            "id": self.id,
+            "draw_period_id": self.draw_period_id,
+            "tier": self.tier,
+            "matching_number": self.matching_number,
+            "amount": float(self.amount) if self.amount is not None else 0.0,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"<DrawPrize id={self.id} draw_period_id={self.draw_period_id} "
+            f"tier={self.tier!r} matching_number={self.matching_number!r} amount={self.amount}>"
+        )
+
