@@ -20,7 +20,9 @@ from routes import (
     expenses_bp,
     income_categories_bp,
     incomes_bp,
+    instruments_bp,
     invoices_bp,
+    trades_bp,
     transfers_bp,
 )
 from utils import api_response
@@ -61,6 +63,8 @@ def create_app() -> Flask:
     app.register_blueprint(expenses_bp)
     app.register_blueprint(invoices_bp)
     app.register_blueprint(draw_periods_bp)
+    app.register_blueprint(instruments_bp)
+    app.register_blueprint(trades_bp)
 
     @app.get("/api/health")
     def health_check():

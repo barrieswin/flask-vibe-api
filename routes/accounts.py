@@ -6,7 +6,7 @@ from decimal import Decimal
 from flask import Blueprint, request
 
 from extensions import db
-from models import Account, Expense, Income, Transfer
+from models import Account, Expense, Income, Trade, Transfer
 from utils import api_response
 
 accounts_bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
@@ -160,7 +160,7 @@ def update_account(account_id: int):
 def get_account_balance(account_id: int):
     """計算並取得帳戶餘額。此端點不寫入。
 
-    餘額 = opening_balance，加上轉入、減去轉出、加上入帳、減去花費。金額先乘上該列的 fx_rate_to_twd。
+    餘額 = opening_balance，加上轉入、減去轉出、加上入帳、減去花費、加上投資交易款項變動。金額先乘上該列的 fx_rate_to_twd。
     回傳的 data 含原幣別餘額與台幣餘額。
     """
     account = db.session.get(Account, account_id)
@@ -179,6 +179,48 @@ def get_account_balance(account_id: int):
     expenses = db.session.scalars(
         db.select(Expense).filter_by(account_id=account.id)
     ).all()
+    active_trades = db.session.scalars(
+        db.select(Trade).where(
+            Trade.account_id == account.id,
+            Trade.voided_at.is_(None),
+        )
+    ).all()
+
+    # 取得本帳戶中已有入帳記錄關聯的 trade_id 集合，避免重複計入現金股利與減資退款
+    trade_in_incomes_ids = set(
+        db.session.scalars(
+            db.select(Income.trade_id).where(
+                Income.account_id == account.id,
+                Income.trade_id.is_not(None),
+            )
+        ).all()
+    )
+
+    trade_cash_raw = Decimal("0")
+    trade_cash_twd = Decimal("0")
+
+    for tr in active_trades:
+        qty = tr.quantity or Decimal("0")
+        prc = tr.price or Decimal("0")
+        fee = tr.fee or Decimal("0")
+        tax = tr.tax or Decimal("0")
+        cash_amt = tr.cash_amount or Decimal("0")
+
+        if tr.trade_type == "buy":
+            # 買進扣掉（數量乘價格 + fee + tax）乘匯率
+            cost_raw = (qty * prc) + fee + tax
+            trade_cash_raw -= cost_raw
+            trade_cash_twd -= cost_raw * tr.fx_rate_to_twd
+        elif tr.trade_type == "sell":
+            # 賣出加回（數量乘價格 - fee - tax）乘匯率
+            proceeds_raw = (qty * prc) - fee - tax
+            trade_cash_raw += proceeds_raw
+            trade_cash_twd += proceeds_raw * tr.fx_rate_to_twd
+        elif tr.trade_type in ("cash_dividend", "capital_reduction"):
+            # 若尚未以 post_income 形式記入 incomes，才在此加回，避免重複計入
+            if tr.id not in trade_in_incomes_ids:
+                trade_cash_raw += cash_amt
+                trade_cash_twd += cash_amt * tr.fx_rate_to_twd
 
     opening_balance = account.opening_balance if account.opening_balance is not None else Decimal("0")
 
@@ -187,14 +229,14 @@ def get_account_balance(account_id: int):
     out_raw = sum((t.amount for t in transfers_out), Decimal("0"))
     income_raw = sum((inc.amount for inc in incomes), Decimal("0"))
     expense_raw = sum((exp.amount for exp in expenses), Decimal("0"))
-    raw_balance = opening_balance + in_raw - out_raw + income_raw - expense_raw
+    raw_balance = opening_balance + in_raw - out_raw + income_raw - expense_raw + trade_cash_raw
 
     # 台幣餘額（金額先乘上該列的 fx_rate_to_twd）
     in_twd = sum((t.amount * t.fx_rate_to_twd for t in transfers_in), Decimal("0"))
     out_twd = sum((t.amount * t.fx_rate_to_twd for t in transfers_out), Decimal("0"))
     income_twd = sum((inc.amount * inc.fx_rate_to_twd for inc in incomes), Decimal("0"))
     expense_twd = sum((exp.amount * exp.fx_rate_to_twd for exp in expenses), Decimal("0"))
-    balance_twd = opening_balance + in_twd - out_twd + income_twd - expense_twd
+    balance_twd = opening_balance + in_twd - out_twd + income_twd - expense_twd + trade_cash_twd
 
     data = {
         "account_id": account.id,
