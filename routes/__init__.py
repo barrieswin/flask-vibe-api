@@ -8,6 +8,7 @@ from .income_categories import income_categories_bp
 from .incomes import incomes_bp
 from .instruments import instruments_bp
 from .invoices import invoices_bp
+from .summary import summary_bp
 from .trades import trades_bp
 from .transfers import transfers_bp
 
@@ -22,7 +23,9 @@ __all__ = [
     "draw_periods_bp",
     "instruments_bp",
     "trades_bp",
+    "summary_bp",
 ]
+
 
 
 

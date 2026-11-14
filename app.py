@@ -22,6 +22,7 @@ from routes import (
     incomes_bp,
     instruments_bp,
     invoices_bp,
+    summary_bp,
     trades_bp,
     transfers_bp,
 )
@@ -65,6 +66,7 @@ def create_app() -> Flask:
     app.register_blueprint(draw_periods_bp)
     app.register_blueprint(instruments_bp)
     app.register_blueprint(trades_bp)
+    app.register_blueprint(summary_bp)
 
     @app.get("/api/health")
     def health_check():
