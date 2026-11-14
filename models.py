@@ -1,6 +1,6 @@
 """資料庫模型定義。
 
-包含帳戶（Account）、帳戶移轉（Transfer）、統一發票（Invoice）、發票品項（InvoiceItem）、開獎期別（DrawPeriod）、開獎獎項（DrawPrize）、入帳分類（IncomeCategory）、入帳記錄（Income）、花費分類（ExpenseCategory）與花費記錄（Expense）模型。
+包含帳戶（Account）、帳戶移轉（Transfer）、統一發票（Invoice）、發票品項（InvoiceItem）、開獎期別（DrawPeriod）、開獎獎項（DrawPrize）、入帳分類（IncomeCategory）、入帳記錄（Income）、花費分類（ExpenseCategory）、花費記錄（Expense）、投資標的（Instrument）與投資交易明細（Trade）模型。
 """
 
 from datetime import datetime, timezone
@@ -19,6 +19,8 @@ __all__ = [
     "Income",
     "ExpenseCategory",
     "Expense",
+    "Instrument",
+    "Trade",
 ]
 
 
@@ -98,6 +100,12 @@ class Account(db.Model):
     expenses = db.relationship(
         "Expense",
         foreign_keys="Expense.account_id",
+        back_populates="account",
+        passive_deletes=True,
+    )
+    trades = db.relationship(
+        "Trade",
+        foreign_keys="Trade.account_id",
         back_populates="account",
         passive_deletes=True,
     )
@@ -605,6 +613,15 @@ class Income(db.Model):
         ),
         nullable=True,
     )
+    trade_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "trades.id",
+            name="fk_incomes_trade_id_trades",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
     created_at = db.Column(
         db.DateTime(timezone=True),
         nullable=False,
@@ -621,6 +638,7 @@ class Income(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("invoice_id", name="uq_incomes_invoice_id"),
+        db.UniqueConstraint("trade_id", name="uq_incomes_trade_id"),
         db.CheckConstraint("amount > 0", name="ck_incomes_amount"),
         db.CheckConstraint("fx_rate_to_twd > 0", name="ck_incomes_fx_rate_to_twd"),
         db.CheckConstraint(
@@ -644,6 +662,11 @@ class Income(db.Model):
         foreign_keys=[invoice_id],
         back_populates="income",
     )
+    trade = db.relationship(
+        "Trade",
+        foreign_keys=[trade_id],
+        back_populates="income",
+    )
 
     def to_dict(self) -> dict:
         """轉換為字典供 API 回傳。"""
@@ -658,6 +681,7 @@ class Income(db.Model):
             "source": self.source,
             "note": self.note,
             "invoice_id": self.invoice_id,
+            "trade_id": self.trade_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -830,6 +854,176 @@ class Expense(db.Model):
             f"amount={self.amount} {self.currency} "
             f"category={self.category_id} account={self.account_id}>"
         )
+
+
+class Instrument(db.Model):
+    """投資標的模型（instruments 表）。
+
+    記錄台股、美股、基金等投資標的代號、名稱與報價幣別。
+    """
+
+    __tablename__ = "instruments"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    market = db.Column(db.String(20), nullable=False)
+    symbol = db.Column(db.String(20), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    currency = db.Column(db.String(3), nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("market", "symbol", name="uq_instruments_market_symbol"),
+        db.CheckConstraint(
+            "market IN ('tw_stock', 'us_stock', 'fund', 'other')",
+            name="ck_instruments_market",
+        ),
+    )
+
+    trades = db.relationship(
+        "Trade",
+        back_populates="instrument",
+        passive_deletes=True,
+    )
+
+    def to_dict(self) -> dict:
+        """轉換為字典供 API 回傳。"""
+        return {
+            "id": self.id,
+            "market": self.market,
+            "symbol": self.symbol,
+            "name": self.name,
+            "currency": self.currency,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<Instrument id={self.id} market={self.market!r} symbol={self.symbol!r}>"
+
+
+class Trade(db.Model):
+    """投資交易明細模型（trades 表）。
+
+    記錄證券買賣、股利發放、分割反分割與減資退款等各類交易。
+    """
+
+    __tablename__ = "trades"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    instrument_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "instruments.id",
+            name="fk_trades_instrument_id_instruments",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    account_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "accounts.id",
+            name="fk_trades_account_id_accounts",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    trade_type = db.Column(db.String(30), nullable=False)
+    traded_on = db.Column(db.Date, nullable=False)
+    quantity = db.Column(db.Numeric(16, 4), nullable=True)
+    price = db.Column(db.Numeric(16, 4), nullable=True)
+    cash_amount = db.Column(db.Numeric(16, 4), nullable=True)
+    ratio = db.Column(db.Numeric(12, 6), nullable=True)
+    fee = db.Column(db.Numeric(16, 4), nullable=True)
+    tax = db.Column(db.Numeric(16, 4), nullable=True)
+    currency = db.Column(db.String(3), nullable=False)
+    fx_rate_to_twd = db.Column(
+        db.Numeric(12, 6),
+        nullable=False,
+        default=Decimal("1.000000"),
+        server_default=db.text("1.000000"),
+    )
+    voided_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "trade_type IN ('buy', 'sell', 'cash_dividend', 'stock_dividend', 'drip', 'split', 'merge', 'capital_reduction')",
+            name="ck_trades_trade_type",
+        ),
+        db.CheckConstraint("fee IS NULL OR fee >= 0", name="ck_trades_fee"),
+        db.CheckConstraint("tax IS NULL OR tax >= 0", name="ck_trades_tax"),
+        db.CheckConstraint("fx_rate_to_twd > 0", name="ck_trades_fx_rate_to_twd"),
+    )
+
+    instrument = db.relationship(
+        "Instrument",
+        foreign_keys=[instrument_id],
+        back_populates="trades",
+    )
+    account = db.relationship(
+        "Account",
+        foreign_keys=[account_id],
+        back_populates="trades",
+    )
+    income = db.relationship(
+        "Income",
+        back_populates="trade",
+        uselist=False,
+        passive_deletes=True,
+    )
+
+    def to_dict(self) -> dict:
+        """轉換為字典供 API 回傳。"""
+        return {
+            "id": self.id,
+            "instrument_id": self.instrument_id,
+            "account_id": self.account_id,
+            "trade_type": self.trade_type,
+            "traded_on": self.traded_on.isoformat() if self.traded_on else None,
+            "quantity": float(self.quantity) if self.quantity is not None else None,
+            "price": float(self.price) if self.price is not None else None,
+            "cash_amount": float(self.cash_amount) if self.cash_amount is not None else None,
+            "ratio": float(self.ratio) if self.ratio is not None else None,
+            "fee": float(self.fee) if self.fee is not None else None,
+            "tax": float(self.tax) if self.tax is not None else None,
+            "currency": self.currency,
+            "fx_rate_to_twd": float(self.fx_rate_to_twd) if self.fx_rate_to_twd is not None else 1.0,
+            "voided_at": self.voided_at.isoformat() if self.voided_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"<Trade id={self.id} type={self.trade_type!r} on={self.traded_on} "
+            f"instrument_id={self.instrument_id} account_id={self.account_id}>"
+        )
+
 
 
 
