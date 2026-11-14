@@ -8,10 +8,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify
+from flask import Flask
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from extensions import db
+from routes import accounts_bp, transfers_bp
+from utils import api_response
 
 
 def create_app() -> Flask:
@@ -40,14 +43,9 @@ def create_app() -> Flask:
 
     db.init_app(app)
 
-    def api_response(code: int, message: str, data=None):
-        """回傳統一封裝的 JSON 回應。"""
-        body = {
-            "code": code,
-            "message": message,
-            "data": data,
-        }
-        return jsonify(body), code
+    # 註冊 API 路由藍圖
+    app.register_blueprint(accounts_bp)
+    app.register_blueprint(transfers_bp)
 
     @app.get("/api/health")
     def health_check():
@@ -68,10 +66,24 @@ def create_app() -> Flask:
             app.logger.exception("資料庫連線檢查失敗: %s", exc)
             return api_response(500, "資料庫暫時連不上", None)
 
+    @app.errorhandler(IntegrityError)
+    def handle_integrity_error(exc):
+        """資料庫約束違反時回傳 400，不將資料庫表名或約束名暴露給客戶端。"""
+        db.session.rollback()
+        app.logger.warning("資料庫約束衝突: %s", exc)
+        return api_response(400, "資料驗證失敗或違反約束規則", None)
+
+    @app.errorhandler(OperationalError)
+    def handle_operational_error(exc):
+        """資料庫連線失敗時回傳 500。"""
+        db.session.rollback()
+        app.logger.exception("資料庫連線異常: %s", exc)
+        return api_response(500, "資料庫連線失敗，請稍後再試", None)
+
     @app.errorhandler(404)
     def handle_not_found(_error):
         """找不到路徑時回傳 JSON 404。"""
-        return api_response(404, "找不到這一筆", None)
+        return api_response(404, "找不到指定的資源", None)
 
     @app.errorhandler(405)
     def handle_method_not_allowed(_error):

@@ -14,6 +14,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from extensions import db
+import models  # noqa: F401 - 匯入以確保模型註冊至 db.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
