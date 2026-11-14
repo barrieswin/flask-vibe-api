@@ -1,6 +1,6 @@
 """資料庫模型定義。
 
-包含帳戶（Account）、帳戶移轉（Transfer）、統一發票（Invoice）、發票品項（InvoiceItem）、開獎期別（DrawPeriod）與開獎獎項（DrawPrize）模型。
+包含帳戶（Account）、帳戶移轉（Transfer）、統一發票（Invoice）、發票品項（InvoiceItem）、開獎期別（DrawPeriod）、開獎獎項（DrawPrize）、入帳分類（IncomeCategory）與入帳記錄（Income）模型。
 """
 
 from datetime import datetime, timezone
@@ -15,6 +15,8 @@ __all__ = [
     "InvoiceItem",
     "DrawPeriod",
     "DrawPrize",
+    "IncomeCategory",
+    "Income",
 ]
 
 
@@ -83,6 +85,12 @@ class Account(db.Model):
         "Transfer",
         foreign_keys="Transfer.to_account_id",
         back_populates="to_account",
+        passive_deletes=True,
+    )
+    incomes = db.relationship(
+        "Income",
+        foreign_keys="Income.account_id",
+        back_populates="account",
         passive_deletes=True,
     )
 
@@ -272,6 +280,12 @@ class Invoice(db.Model):
         "InvoiceItem",
         back_populates="invoice",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    income = db.relationship(
+        "Income",
+        back_populates="invoice",
+        uselist=False,
         passive_deletes=True,
     )
 
@@ -480,4 +494,166 @@ class DrawPrize(db.Model):
             f"<DrawPrize id={self.id} draw_period_id={self.draw_period_id} "
             f"tier={self.tier!r} matching_number={self.matching_number!r} amount={self.amount}>"
         )
+
+
+class IncomeCategory(db.Model):
+    """入帳分類模型（income_categories 表）。
+
+    記錄收入商業性質分類（如薪資、獎金、利息、發票中獎等）。
+    """
+
+    __tablename__ = "income_categories"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(50), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("name", name="uq_income_categories_name"),
+    )
+
+    incomes = db.relationship(
+        "Income",
+        back_populates="category",
+        passive_deletes=True,
+    )
+
+    def to_dict(self) -> dict:
+        """轉換為字典供 API 回傳。"""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return f"<IncomeCategory id={self.id} name={self.name!r}>"
+
+
+class Income(db.Model):
+    """入帳記錄模型（incomes 表）。
+
+    記錄所有正向現金流入帳流水。
+    """
+
+    __tablename__ = "incomes"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    received_on = db.Column(db.Date, nullable=False)
+    amount = db.Column(db.Numeric(16, 4), nullable=False)
+    currency = db.Column(db.String(3), nullable=False)
+    fx_rate_to_twd = db.Column(
+        db.Numeric(12, 6),
+        nullable=False,
+        default=Decimal("1.000000"),
+        server_default=db.text("1.000000"),
+    )
+    category_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "income_categories.id",
+            name="fk_incomes_category_id_income_categories",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    account_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "accounts.id",
+            name="fk_incomes_account_id_accounts",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    source = db.Column(db.String(100), nullable=True)
+    note = db.Column(db.String(255), nullable=True)
+    invoice_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "invoices.id",
+            name="fk_incomes_invoice_id_invoices",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("invoice_id", name="uq_incomes_invoice_id"),
+        db.CheckConstraint("amount > 0", name="ck_incomes_amount"),
+        db.CheckConstraint("fx_rate_to_twd > 0", name="ck_incomes_fx_rate_to_twd"),
+        db.CheckConstraint(
+            "source IS NOT NULL OR note IS NOT NULL",
+            name="ck_incomes_source_or_note_present",
+        ),
+    )
+
+    category = db.relationship(
+        "IncomeCategory",
+        foreign_keys=[category_id],
+        back_populates="incomes",
+    )
+    account = db.relationship(
+        "Account",
+        foreign_keys=[account_id],
+        back_populates="incomes",
+    )
+    invoice = db.relationship(
+        "Invoice",
+        foreign_keys=[invoice_id],
+        back_populates="income",
+    )
+
+    def to_dict(self) -> dict:
+        """轉換為字典供 API 回傳。"""
+        return {
+            "id": self.id,
+            "received_on": self.received_on.isoformat() if self.received_on else None,
+            "amount": float(self.amount) if self.amount is not None else 0.0,
+            "currency": self.currency,
+            "fx_rate_to_twd": float(self.fx_rate_to_twd) if self.fx_rate_to_twd is not None else 1.0,
+            "category_id": self.category_id,
+            "account_id": self.account_id,
+            "source": self.source,
+            "note": self.note,
+            "invoice_id": self.invoice_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"<Income id={self.id} on={self.received_on} "
+            f"amount={self.amount} {self.currency} "
+            f"category={self.category_id} account={self.account_id}>"
+        )
+
 

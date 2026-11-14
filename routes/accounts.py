@@ -6,7 +6,7 @@ from decimal import Decimal
 from flask import Blueprint, request
 
 from extensions import db
-from models import Account, Transfer
+from models import Account, Income, Transfer
 from utils import api_response
 
 accounts_bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
@@ -160,7 +160,7 @@ def update_account(account_id: int):
 def get_account_balance(account_id: int):
     """計算並取得帳戶餘額。此端點不寫入。
 
-    餘額 = opening_balance，加上轉入、減去轉出。金額先乘上該列的 fx_rate_to_twd。
+    餘額 = opening_balance，加上轉入、減去轉出、加上入帳。金額先乘上該列的 fx_rate_to_twd。
     回傳的 data 含原幣別餘額與台幣餘額。
     """
     account = db.session.get(Account, account_id)
@@ -173,18 +173,23 @@ def get_account_balance(account_id: int):
     transfers_out = db.session.scalars(
         db.select(Transfer).filter_by(from_account_id=account.id)
     ).all()
+    incomes = db.session.scalars(
+        db.select(Income).filter_by(account_id=account.id)
+    ).all()
 
     opening_balance = account.opening_balance if account.opening_balance is not None else Decimal("0")
 
     # 原幣別餘額
     in_raw = sum((t.amount for t in transfers_in), Decimal("0"))
     out_raw = sum((t.amount for t in transfers_out), Decimal("0"))
-    raw_balance = opening_balance + in_raw - out_raw
+    income_raw = sum((inc.amount for inc in incomes), Decimal("0"))
+    raw_balance = opening_balance + in_raw - out_raw + income_raw
 
     # 台幣餘額（金額先乘上該列的 fx_rate_to_twd）
     in_twd = sum((t.amount * t.fx_rate_to_twd for t in transfers_in), Decimal("0"))
     out_twd = sum((t.amount * t.fx_rate_to_twd for t in transfers_out), Decimal("0"))
-    balance_twd = opening_balance + in_twd - out_twd
+    income_twd = sum((inc.amount * inc.fx_rate_to_twd for inc in incomes), Decimal("0"))
+    balance_twd = opening_balance + in_twd - out_twd + income_twd
 
     data = {
         "account_id": account.id,

@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from extensions import db
-from routes import accounts_bp, transfers_bp
+from routes import accounts_bp, income_categories_bp, incomes_bp, transfers_bp
 from utils import api_response
 
 
@@ -46,6 +46,8 @@ def create_app() -> Flask:
     # 註冊 API 路由藍圖
     app.register_blueprint(accounts_bp)
     app.register_blueprint(transfers_bp)
+    app.register_blueprint(income_categories_bp)
+    app.register_blueprint(incomes_bp)
 
     @app.get("/api/health")
     def health_check():
