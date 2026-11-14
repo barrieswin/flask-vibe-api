@@ -15,10 +15,12 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from extensions import db
 from routes import (
     accounts_bp,
+    draw_periods_bp,
     expense_categories_bp,
     expenses_bp,
     income_categories_bp,
     incomes_bp,
+    invoices_bp,
     transfers_bp,
 )
 from utils import api_response
@@ -57,6 +59,8 @@ def create_app() -> Flask:
     app.register_blueprint(incomes_bp)
     app.register_blueprint(expense_categories_bp)
     app.register_blueprint(expenses_bp)
+    app.register_blueprint(invoices_bp)
+    app.register_blueprint(draw_periods_bp)
 
     @app.get("/api/health")
     def health_check():
